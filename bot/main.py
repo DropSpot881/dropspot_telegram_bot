@@ -1,5 +1,8 @@
 """Main entry point — initialize bot, register handlers, run polling."""
 import logging
+import os
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler
 from bot.config import BOT_TOKEN
 from bot.database import init_db
@@ -10,6 +13,24 @@ logging.basicConfig(
     level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
+
+
+# ── Render.com Port Binding Workaround ─────────────────────
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"OK")
+
+    def log_message(self, format, *args):
+        return  # Silence logs for health checks
+
+def run_health_check_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    logger.info(f"Health check server starting on port {port}...")
+    server.serve_forever()
 
 
 async def post_init(application):
@@ -24,6 +45,9 @@ def main():
         return
 
     app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
+
+    # Start health check server in a background thread for Render
+    threading.Thread(target=run_health_check_server, daemon=True).start()
 
     # ── Import handlers ────────────────────────────────────
     from bot.handlers.start import (
